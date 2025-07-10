@@ -47,9 +47,9 @@ class SpeechDetector:
     """Detect and analyze speech in videos"""
     
     def __init__(self,
-                 energy_threshold: float = 0.02,
-                 silence_duration: float = 0.5,
-                 min_speech_duration: float = 1.0,
+                 energy_threshold: float = 0.005,  # Much more sensitive
+                 silence_duration: float = 0.1,    # Shorter silence gaps
+                 min_speech_duration: float = 0.5,  # Accept very short speech
                  enable_transcription: bool = False,
                  enable_face_sync: bool = True):
         """
