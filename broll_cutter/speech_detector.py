@@ -49,7 +49,7 @@ class SpeechDetector:
     def __init__(self,
                  energy_threshold: float = 0.005,  # Much more sensitive
                  silence_duration: float = 0.1,    # Shorter silence gaps
-                 min_speech_duration: float = 0.5,  # Accept very short speech
+                 min_speech_duration: float = 8.0,  # Minimum 8 seconds
                  enable_transcription: bool = False,
                  enable_face_sync: bool = True):
         """

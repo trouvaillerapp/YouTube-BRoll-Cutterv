@@ -724,8 +724,8 @@ def process_videos_sync(job_id: str, urls: List[str], settings: Dict[str, Any]):
                         url,
                         speaker_visible=settings.get("speaker_visible", True),
                         quote_mode=False,
-                        min_duration=settings.get("min_speech_duration", 3.0),
-                        max_duration=settings.get("max_speech_duration", 20.0),
+                        min_duration=settings.get("min_speech_duration", 8.0),
+                        max_duration=settings.get("max_speech_duration", 15.0),
                         custom_settings=settings
                     )
                 elif extraction_mode == "quotes":
@@ -1152,8 +1152,8 @@ async def n8n_extract_speaking(request: N8NVideoRequest, background_tasks: Backg
         settings = request.settings or {}
         settings["extraction_mode"] = "speaking"
         settings["speaker_visible"] = settings.get("speaker_visible", True)
-        settings["min_speech_duration"] = settings.get("min_speech_duration", 3.0)
-        settings["max_speech_duration"] = settings.get("max_speech_duration", 20.0)
+        settings["min_speech_duration"] = settings.get("min_speech_duration", 8.0)
+        settings["max_speech_duration"] = settings.get("max_speech_duration", 15.0)
         
         # Store job info
         processing_jobs[job_id] = {
@@ -1205,7 +1205,7 @@ async def n8n_extract_quotes(request: N8NVideoRequest, background_tasks: Backgro
         settings = request.settings or {}
         settings["extraction_mode"] = "quotes"
         settings["speaker_visible"] = True
-        settings["min_speech_duration"] = settings.get("min_quote_duration", 3.0)
+        settings["min_speech_duration"] = settings.get("min_quote_duration", 8.0)
         settings["max_speech_duration"] = settings.get("max_quote_duration", 15.0)
         
         # Store job info
@@ -1291,8 +1291,8 @@ async def n8n_api_docs():
                     "url": "https://youtube.com/watch?v=VIDEO_ID",
                     "settings": {
                         "speaker_visible": True,
-                        "min_speech_duration": 3.0,
-                        "max_speech_duration": 20.0,
+                        "min_speech_duration": 8.0,
+                        "max_speech_duration": 15.0,
                         "max_clips_per_video": 5
                     },
                     "webhook_url": "optional"
