@@ -1,0 +1,49 @@
+# Railway ignore file - similar to .gitignore but for Railway deployments
+
+# Local development files
+server.log
+server_8001.log
+.env.local
+
+# Test files
+test_*
+debug_*
+quick_*
+
+# Local output directories
+extracted_clips/
+web_output/
+test_output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local config files
+*.local
+.env.development
+
+# Large media files (if any)
+*.mp4
+*.mov
+*.avi
+*.mkv

@@ -1,0 +1,29 @@
+# Core dependencies for Railway deployment
+yt-dlp>=2024.7.7
+opencv-python-headless>=4.8.0  # Headless version for server
+numpy>=1.24.0
+pillow>=10.0.0
+requests>=2.31.0
+
+# FastAPI and server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Video processing
+moviepy>=1.0.3
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.8
+
+# Configuration and utilities
+pyyaml>=6.0
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+click>=8.1.0
+
+# Optional: Advanced features
+scikit-image>=0.21.0
+scipy>=1.11.0
+
+# Production dependencies
+gunicorn>=21.2.0

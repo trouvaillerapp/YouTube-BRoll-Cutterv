@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+bin/
+include/
+lib/
+lib64/
+share/
+pyvenv.cfg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+server.log
+server_8001.log
+
+# Test outputs
+test_output/
+web_output/
+extracted_clips/
+debug_output/
+
+# Media files (too large for git)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+/var/
+
+# ngrok
+ngrok
+ngrok.zip
+
+# Local test files
+test_download.mp4
+quick_*.py
+debug_*.py
+test_video_debug.py
+test_n8n_integration.py
+test_railway_locally.py

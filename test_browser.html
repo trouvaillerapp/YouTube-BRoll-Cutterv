@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>B-Roll Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 5px; }
+        #status { border: 1px solid #ccc; padding: 10px; margin: 10px 0; height: 200px; overflow-y: auto; }
+        .clip { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>B-Roll Cutter Test</h1>
+    
+    <input type="text" id="urlInput" placeholder="YouTube URL" style="width: 400px;" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+    <button onclick="startProcessing()">Process Video</button>
+    <button onclick="checkStatus()">Check Status</button>
+    
+    <div id="status">Ready...</div>
+    <div id="results"></div>
+    
+    <script>
+        let currentJobId = null;
+        
+        async function startProcessing() {
+            const url = document.getElementById('urlInput').value;
+            if (!url) return;
+            
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        urls: [url],
+                        settings: { quality: '480p', clip_duration: 5, max_clips_per_video: 3 }
+                    })
+                });
+                
+                const data = await response.json();
+                currentJobId = data.job_id;
+                
+                log(`Job started: ${currentJobId}`);
+                pollStatus();
+                
+            } catch (error) {
+                log(`Error: ${error.message}`);
+            }
+        }
+        
+        async function checkStatus() {
+            if (!currentJobId) {
+                log('No active job');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/status/${currentJobId}`);
+                const status = await response.json();
+                
+                log(`Status: ${status.status} - ${status.progress.toFixed(1)}% - ${status.message}`);
+                
+                if (status.status === 'completed' && status.clips.length > 0) {
+                    showResults(status.clips);
+                }
+                
+            } catch (error) {
+                log(`Status check error: ${error.message}`);
+            }
+        }
+        
+        async function pollStatus() {
+            if (!currentJobId) return;
+            
+            await checkStatus();
+            
+            // Continue polling if still processing
+            setTimeout(() => {
+                if (currentJobId) pollStatus();
+            }, 2000);
+        }
+        
+        function showResults(clips) {
+            const resultsDiv = document.getElementById('results');
+            let html = '<h3>Results:</h3>';
+            
+            clips.forEach(clip => {
+                html += `<div class="clip">
+                    <a href="/download/${clip}" download>${clip}</a>
+                </div>`;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        function log(message) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>

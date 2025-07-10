@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Speech Detection B-Roll Cutter Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 1200px; 
+            margin: 0 auto;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        h1 { color: #333; }
+        h2 { color: #666; }
+        button { 
+            padding: 10px 20px; 
+            margin: 5px; 
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { 
+            background: #ccc; 
+            cursor: not-allowed;
+        }
+        input[type="text"] { 
+            width: 500px; 
+            padding: 10px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #status { 
+            border: 1px solid #ccc; 
+            padding: 10px; 
+            margin: 10px 0; 
+            height: 200px; 
+            overflow-y: auto; 
+            background: white;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .clip { 
+            margin: 10px 0; 
+            padding: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .segment {
+            background: #e8f4f8;
+            padding: 10px;
+            margin: 5px 0;
+            border-left: 4px solid #007bff;
+        }
+        .quote {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+        }
+        .mode-selector {
+            margin: 20px 0;
+        }
+        .mode-selector label {
+            margin-right: 20px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎙️ Speech Detection B-Roll Cutter</h1>
+    
+    <div class="container">
+        <h2>Video Input</h2>
+        <input type="text" id="urlInput" placeholder="YouTube URL" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+        
+        <div class="mode-selector">
+            <h3>Detection Mode:</h3>
+            <label>
+                <input type="radio" name="mode" value="speech" checked> 
+                Speech Detection (All speech segments)
+            </label>
+            <label>
+                <input type="radio" name="mode" value="quotes"> 
+                Quote Extraction (3-20 second quotes)
+            </label>
+            <label>
+                <input type="radio" name="mode" value="speaking"> 
+                Speaking Scenes (With visible face)
+            </label>
+        </div>
+        
+        <div>
+            <button onclick="startProcessing()">🚀 Start Processing</button>
+            <button onclick="checkStatus()">📊 Check Status</button>
+            <button onclick="stopProcessing()" disabled id="stopBtn">⏹️ Stop</button>
+        </div>
+        
+        <div class="progress-bar" style="display: none;" id="progressBar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>Processing Status</h2>
+        <div id="status">Ready to process videos with speech detection...</div>
+    </div>
+    
+    <div class="container" id="resultsContainer" style="display: none;">
+        <h2>🎬 Results</h2>
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        let currentJobId = null;
+        let pollInterval = null;
+        
+        async function startProcessing() {
+            const url = document.getElementById('urlInput').value;
+            if (!url) {
+                alert('Please enter a YouTube URL');
+                return;
+            }
+            
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('progressBar').style.display = 'block';
+            
+            try {
+                log('🔄 Starting speech detection processing...');
+                
+                const settings = {
+                    quality: '720p',
+                    clip_duration: 10,
+                    max_clips_per_video: 5,
+                    detection_mode: mode,
+                    enable_speech_detection: true,
+                    speech_settings: {
+                        energy_threshold: 0.02,
+                        silence_duration: 0.5,
+                        min_speech_duration: mode === 'quotes' ? 3.0 : 1.0,
+                        max_speech_duration: mode === 'quotes' ? 20.0 : 30.0,
+                        enable_face_sync: mode === 'speaking',
+                        enable_transcription: false
+                    }
+                };
+                
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        urls: [url],
+                        settings: settings
+                    })
+                });
+                
+                const data = await response.json();
+                currentJobId = data.job_id;
+                
+                log(`✅ Job started with ID: ${currentJobId}`);
+                log(`🎙️ Mode: ${mode.toUpperCase()}`);
+                
+                pollStatus();
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                document.getElementById('stopBtn').disabled = true;
+            }
+        }
+        
+        async function checkStatus() {
+            if (!currentJobId) {
+                log('⚠️ No active job to check');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/status/${currentJobId}`);
+                const status = await response.json();
+                
+                updateProgress(status.progress);
+                log(`📊 Status: ${status.status} - ${status.progress.toFixed(1)}% - ${status.message}`);
+                
+                if (status.status === 'completed') {
+                    stopPolling();
+                    showResults(status);
+                } else if (status.status === 'failed') {
+                    stopPolling();
+                    log(`❌ Job failed: ${status.message}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Status check error: ${error.message}`);
+            }
+        }
+        
+        function pollStatus() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(checkStatus, 2000);
+        }
+        
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+            document.getElementById('stopBtn').disabled = true;
+        }
+        
+        function stopProcessing() {
+            stopPolling();
+            currentJobId = null;
+            log('⏹️ Processing stopped');
+            updateProgress(0);
+        }
+        
+        function updateProgress(percent) {
+            document.getElementById('progressFill').style.width = percent + '%';
+        }
+        
+        function showResults(status) {
+            const resultsDiv = document.getElementById('results');
+            const container = document.getElementById('resultsContainer');
+            container.style.display = 'block';
+            
+            let html = '';
+            
+            if (status.speech_segments && status.speech_segments.length > 0) {
+                html += `<h3>🎙️ Detected ${status.speech_segments.length} Speech Segments:</h3>`;
+                
+                status.speech_segments.forEach((segment, index) => {
+                    const segmentClass = segment.speech_type === 'quote' ? 'segment quote' : 'segment';
+                    html += `<div class="${segmentClass}">
+                        <h4>Segment ${index + 1} - ${segment.speech_type.toUpperCase()}</h4>
+                        <p>⏱️ Time: ${segment.start_time.toFixed(2)}s - ${segment.end_time.toFixed(2)}s (${segment.duration.toFixed(2)}s)</p>
+                        <p>📊 Confidence: ${(segment.confidence * 100).toFixed(0)}%</p>
+                        <p>👤 Has Face: ${segment.has_face ? 'Yes' : 'No'}</p>
+                        ${segment.text ? `<p>📝 Text: ${segment.text}</p>` : ''}
+                    </div>`;
+                });
+            }
+            
+            if (status.clips && status.clips.length > 0) {
+                html += `<h3>🎬 Generated ${status.clips.length} B-Roll Clips:</h3>`;
+                
+                status.clips.forEach(clip => {
+                    html += `<div class="clip">
+                        <h4>📹 ${clip.filename || clip}</h4>
+                        <a href="/download/${clip.filename || clip}" download>⬇️ Download Clip</a>
+                        ${clip.metadata ? `
+                            <p>Duration: ${clip.metadata.duration}s</p>
+                            <p>Type: ${clip.metadata.scene_type}</p>
+                        ` : ''}
+                    </div>`;
+                });
+            }
+            
+            if (!status.speech_segments && !status.clips) {
+                html = '<p>No results found. The video might not contain clear speech segments.</p>';
+            }
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        function log(message) {
+            const statusDiv = document.getElementById('status');
+            const timestamp = new Date().toLocaleTimeString();
+            statusDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+        
+        // Initial message
+        log('🎙️ Speech Detection B-Roll Cutter ready!');
+        log('Choose a detection mode and enter a YouTube URL to begin.');
+    </script>
+</body>
+</html>

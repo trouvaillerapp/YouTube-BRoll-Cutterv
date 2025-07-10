@@ -1,0 +1,18 @@
+# Web server requirements
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+websockets==12.0
+python-multipart==0.0.6
+
+# Core requirements (from existing project)
+opencv-python==4.8.1.78
+numpy==1.24.3
+yt-dlp==2023.10.13
+tqdm==4.66.1
+Pillow==10.0.1
+moviepy==1.0.3
+scikit-learn==1.3.2
+
+# Optional dependencies
+ffmpeg-python==0.2.0
+pandas==2.1.3
