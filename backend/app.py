@@ -755,7 +755,12 @@ def process_videos_sync(job_id: str, urls: List[str], settings: Dict[str, Any]):
         # Just use the filename for download links
         processing_jobs[job_id]["clips"] = [Path(clip).name for clip in all_clips]
         processing_jobs[job_id]["progress"] = 100
-        processing_jobs[job_id]["message"] = f"Completed! Extracted {len(all_clips)} clips"
+        
+        if len(all_clips) == 0:
+            processing_jobs[job_id]["message"] = "Completed but no clips extracted. Try adjusting settings (lower scene threshold, shorter clip duration)"
+            logger.warning(f"Job {job_id}: No clips extracted. This may indicate scene detection issues.")
+        else:
+            processing_jobs[job_id]["message"] = f"Completed! Extracted {len(all_clips)} clips"
         
         print(f"Job {job_id}: Completed with {len(all_clips)} clips")
         

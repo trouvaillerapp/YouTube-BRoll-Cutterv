@@ -16,6 +16,8 @@ from .scene_detector import SceneDetector, Scene
 from .watermark_remover import WatermarkRemover, WatermarkRegion
 from .video_processor import VideoProcessor
 from .speech_detector import SpeechDetector, SpeechSegment
+from .youtube_fallback import YouTubeFallback
+from .simple_extractor import SimpleExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,10 @@ class YouTubeBRollCutter:
         )
         
         # Statistics
+        self.simple_extractor = SimpleExtractor(
+            output_dir=str(self.output_dir)
+        )
+        
         self.stats = {
             'videos_processed': 0,
             'clips_extracted': 0,
@@ -174,7 +180,36 @@ class YouTubeBRollCutter:
             
             if not scenes:
                 logger.warning("No scenes detected in video")
-                return []
+                logger.warning(f"Scene detector settings: threshold={self.scene_detector.threshold}, "
+                            f"min_length={self.scene_detector.min_scene_length}, "
+                            f"max_length={self.scene_detector.max_scene_length}")
+                
+                # Try simple time-based extraction as fallback
+                logger.info("Falling back to simple time-based extraction")
+                clips = self.simple_extractor.extract_time_based_clips(
+                    video_path=video_path,
+                    clip_duration=custom_settings.get('clip_duration', self.clip_duration) if custom_settings else self.clip_duration,
+                    max_clips=self.max_clips_per_video,
+                    start_time=start_time,
+                    job_id=job_id
+                )
+                
+                if clips:
+                    logger.info(f"Simple extraction succeeded: {len(clips)} clips")
+                    self.stats['clips_extracted'] += len(clips)
+                    self.stats['videos_processed'] += 1
+                    self.stats['total_duration_processed'] += video_info.get('duration', 0)
+                    return clips
+                else:
+                    logger.error("Both scene detection and simple extraction failed")
+                    return []
+            
+            # Log scene details for debugging
+            logger.info(f"Scene detection details:")
+            for i, scene in enumerate(scenes[:5]):  # Log first 5 scenes
+                logger.info(f"  Scene {i+1}: {scene.start_time:.1f}s-{scene.end_time:.1f}s, "
+                          f"duration={scene.duration:.1f}s, confidence={scene.confidence:.2f}, "
+                          f"type={scene.scene_type}, has_faces={scene.has_faces}")
             
             # Filter scenes by start time and max duration if specified
             if start_time > 0 or max_duration:

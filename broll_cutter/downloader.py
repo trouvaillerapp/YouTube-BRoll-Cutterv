@@ -9,11 +9,23 @@ from pathlib import Path
 from typing import Dict, List, Optional, Callable
 import yt_dlp
 from tqdm import tqdm
+import json
+import random
 
 logger = logging.getLogger(__name__)
 
 class VideoDownloader:
     """Handles YouTube video downloading with yt-dlp"""
+    
+    # User agents to rotate for avoiding bot detection
+    USER_AGENTS = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+    ]
     
     def __init__(self, output_dir: str = None, quality: str = "720p", temp_dir: str = None):
         """
@@ -51,9 +63,57 @@ class VideoDownloader:
             'writeinfojson': True,
             'writesubtitles': False,
             'writeautomaticsub': False,
+            'user-agent': random.choice(self.USER_AGENTS),
+            'referer': 'https://www.youtube.com/',
+            'add_header': [
+                'Accept-Language: en-US,en;q=0.9',
+                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            ]
         }
         
+        # Check for cookies from environment
+        self._setup_cookies()
+        
         self.progress_callback = None
+    
+    def _setup_cookies(self):
+        """Setup cookies for authentication if available"""
+        # Check for cookies file path in environment
+        cookies_file = os.environ.get('YOUTUBE_COOKIES_FILE')
+        if cookies_file and os.path.exists(cookies_file):
+            self.ydl_opts['cookiefile'] = cookies_file
+            logger.info(f"Using cookies file: {cookies_file}")
+            
+        # Check for cookies JSON in environment
+        cookies_json = os.environ.get('YOUTUBE_COOKIES')
+        if cookies_json:
+            try:
+                # Save cookies to a temporary file
+                cookies_data = json.loads(cookies_json)
+                cookies_file = self.temp_dir / 'youtube_cookies.txt'
+                
+                # Convert JSON cookies to Netscape format
+                with open(cookies_file, 'w') as f:
+                    f.write("# Netscape HTTP Cookie File\n")
+                    f.write("# This is a generated file!  Do not edit.\n\n")
+                    
+                    for cookie in cookies_data:
+                        # Format: domain flag path secure expiration name value
+                        domain = cookie.get('domain', '.youtube.com')
+                        flag = 'TRUE' if domain.startswith('.') else 'FALSE'
+                        path = cookie.get('path', '/')
+                        secure = 'TRUE' if cookie.get('secure', False) else 'FALSE'
+                        expiry = str(cookie.get('expirationDate', '0'))
+                        name = cookie.get('name', '')
+                        value = cookie.get('value', '')
+                        
+                        if name and value:
+                            f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
+                
+                self.ydl_opts['cookiefile'] = str(cookies_file)
+                logger.info("Using cookies from environment variable")
+            except Exception as e:
+                logger.warning(f"Failed to parse cookies from environment: {e}")
         
     def set_progress_callback(self, callback: Callable[[Dict], None]):
         """Set a callback function for download progress updates"""
@@ -91,8 +151,15 @@ class VideoDownloader:
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'skip_download': True
+                'skip_download': True,
+                'user-agent': random.choice(self.USER_AGENTS),
+                'referer': 'https://www.youtube.com/',
+                'add_header': self.ydl_opts.get('add_header', [])
             }
+            
+            # Add cookies if available
+            if 'cookiefile' in self.ydl_opts:
+                ydl_opts['cookiefile'] = self.ydl_opts['cookiefile']
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
