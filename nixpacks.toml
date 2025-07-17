@@ -1,5 +1,8 @@
 [phases.setup]
-nixPkgs = ["ffmpeg", "python3"]
+nixPkgs = ["ffmpeg", "python311", "pkg-config"]
+
+[phases.install]
+cmds = ["python -m pip install --no-cache-dir -r requirements.txt"]
 
 [start]
 cmd = "python start_railway.py"
