@@ -1,0 +1,14 @@
+debug_output/
+web_output/
+test_output/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+README.md
+*.log
+.env
+debug_*.py
+test_*.py
