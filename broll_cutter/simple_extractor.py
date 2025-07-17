@@ -98,6 +98,13 @@ class SimpleExtractor:
         try:
             import subprocess
             
+            # Check if ffmpeg is available
+            try:
+                subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logger.error("ffmpeg not found - falling back to OpenCV")
+                return self._extract_clip_opencv(input_path, start_time, duration, output_path)
+            
             cmd = [
                 'ffmpeg',
                 '-i', input_path,
@@ -109,21 +116,78 @@ class SimpleExtractor:
                 output_path
             ]
             
-            # Run ffmpeg
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Run ffmpeg with timeout
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0 and os.path.exists(output_path):
                 return True
             else:
-                logger.debug(f"ffmpeg error: {result.stderr}")
+                logger.debug(f"ffmpeg copy failed: {result.stderr}")
                 # Fallback to re-encoding if copy fails
                 cmd[6] = 'libx264'  # Replace 'copy' with 'libx264'
                 cmd.insert(7, '-preset')
                 cmd.insert(8, 'fast')
                 
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
                 return result.returncode == 0 and os.path.exists(output_path)
                 
+        except subprocess.TimeoutExpired:
+            logger.error(f"ffmpeg timeout for clip at {start_time}s")
+            return False
         except Exception as e:
             logger.error(f"ffmpeg extraction failed: {e}")
+            return self._extract_clip_opencv(input_path, start_time, duration, output_path)
+    
+    def _extract_clip_opencv(self, input_path: str, start_time: float, 
+                           duration: float, output_path: str) -> bool:
+        """Fallback clip extraction using OpenCV"""
+        try:
+            import cv2
+            
+            cap = cv2.VideoCapture(input_path)
+            if not cap.isOpened():
+                logger.error(f"OpenCV failed to open: {input_path}")
+                return False
+                
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps <= 0:
+                logger.error("Invalid FPS detected")
+                return False
+                
+            start_frame = int(start_time * fps)
+            end_frame = int((start_time + duration) * fps)
+            
+            # Set codec
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(output_path, fourcc, fps, 
+                                (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                                 int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+            
+            # Seek to start frame
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            frame_count = 0
+            max_frames = end_frame - start_frame
+            
+            while frame_count < max_frames:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                    
+                out.write(frame)
+                frame_count += 1
+            
+            cap.release()
+            out.release()
+            
+            success = os.path.exists(output_path) and os.path.getsize(output_path) > 1000
+            if success:
+                logger.info(f"OpenCV extraction successful: {output_path}")
+            else:
+                logger.error(f"OpenCV extraction failed or file too small: {output_path}")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"OpenCV extraction failed: {e}")
             return False

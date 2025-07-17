@@ -697,7 +697,9 @@ def process_videos_sync(job_id: str, urls: List[str], settings: Dict[str, Any]):
             "output_dir": str(output_dir),
             "clip_duration": settings.get("clip_duration", 8.0),
             "quality": settings.get("quality", "720p"),  # Higher quality by default
-            "scene_threshold": settings.get("scene_threshold", 0.3),
+            "scene_threshold": settings.get("scene_threshold", 0.2),  # More sensitive for Railway
+            "min_scene_length": 2.0,  # Lower minimum for better results
+            "max_scene_length": 20.0,  # Higher maximum
             "remove_watermarks": False,  # Disabled for MVP
             "enhance_video": False,      # Disabled for MVP
             "max_clips_per_video": settings.get("max_clips_per_video", 5),
@@ -885,8 +887,59 @@ async def download_file(filename: str):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "active_jobs": len(processing_jobs)}
+    """Health check endpoint with system verification"""
+    import subprocess
+    import sys
+    
+    health_status = {
+        "status": "healthy",
+        "active_jobs": len(processing_jobs),
+        "python_version": sys.version,
+        "dependencies": {}
+    }
+    
+    # Check critical dependencies
+    try:
+        import cv2
+        health_status["dependencies"]["opencv"] = cv2.__version__
+    except ImportError:
+        health_status["dependencies"]["opencv"] = "missing"
+        health_status["status"] = "degraded"
+    
+    try:
+        import yt_dlp
+        health_status["dependencies"]["yt-dlp"] = yt_dlp.version.__version__
+    except ImportError:
+        health_status["dependencies"]["yt-dlp"] = "missing"
+        health_status["status"] = "unhealthy"
+    
+    try:
+        import numpy
+        health_status["dependencies"]["numpy"] = numpy.__version__
+    except ImportError:
+        health_status["dependencies"]["numpy"] = "missing"
+        health_status["status"] = "degraded"
+    
+    # Check ffmpeg availability
+    try:
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            # Extract version from first line
+            version_line = result.stdout.split('\n')[0]
+            health_status["dependencies"]["ffmpeg"] = version_line.split()[2] if len(version_line.split()) > 2 else "available"
+        else:
+            health_status["dependencies"]["ffmpeg"] = "error"
+            health_status["status"] = "degraded"
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        health_status["dependencies"]["ffmpeg"] = "missing"
+        health_status["status"] = "degraded"
+    
+    # Check B-Roll Cutter module
+    health_status["dependencies"]["broll_cutter"] = "available" if BROLL_AVAILABLE else "missing"
+    if not BROLL_AVAILABLE:
+        health_status["status"] = "unhealthy"
+    
+    return health_status
 
 # N8N Integration APIs
 class N8NVideoRequest(BaseModel):
