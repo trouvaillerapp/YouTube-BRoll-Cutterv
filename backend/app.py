@@ -173,6 +173,7 @@ async def read_root():
                                         <option value="scenes" selected>Scene Detection (General B-Roll)</option>
                                         <option value="speaking">Speaking Segments (Dialogue/Monologue)</option>
                                         <option value="quotes">Quotes & Statements (3-15s clips)</option>
+                                        <option value="natural">🎯 Natural Boundaries (Ends at silence)</option>
                                     </select>
                                 </div>
                             </div>
@@ -275,7 +276,7 @@ async def read_root():
             
             // Show/hide speech settings based on mode
             modeSelect.addEventListener('change', (e) => {
-                if (e.target.value === 'speaking' || e.target.value === 'quotes') {
+                if (e.target.value === 'speaking' || e.target.value === 'quotes' || e.target.value === 'natural') {
                     speechSettings.style.display = 'block';
                 } else {
                     speechSettings.style.display = 'none';
@@ -441,6 +442,11 @@ async def read_root():
                         settings.min_quote_duration = settings.min_speech_duration;
                         settings.max_quote_duration = Math.min(settings.max_speech_duration, 15);
                     }
+                } else if (mode === 'natural') {
+                    // Natural mode settings
+                    settings.target_duration = parseFloat(document.getElementById('durationInput').value);
+                    settings.min_silence_gap = 0.5;  // Minimum silence to cut at
+                    settings.max_extension_seconds = 5.0;  // Max extension beyond target
                 }
                 
                 return settings;
@@ -738,6 +744,14 @@ def process_videos_sync(job_id: str, urls: List[str], settings: Dict[str, Any]):
                         quote_mode=True,
                         min_duration=settings.get("min_quote_duration", 3.0),
                         max_duration=settings.get("max_quote_duration", 15.0),
+                        custom_settings=settings
+                    )
+                elif extraction_mode == "natural":
+                    # Extract clips with natural speech boundaries
+                    clips = cutter.extract_natural_clips(
+                        url,
+                        target_duration=settings.get("target_duration", 15.0),
+                        max_clips=settings.get("max_clips_per_video", 5),
                         custom_settings=settings
                     )
                 else:

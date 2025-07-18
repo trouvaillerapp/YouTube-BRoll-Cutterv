@@ -51,7 +51,9 @@ class SpeechDetector:
                  silence_duration: float = 0.1,    # Shorter silence gaps
                  min_speech_duration: float = 8.0,  # Minimum 8 seconds
                  enable_transcription: bool = False,
-                 enable_face_sync: bool = True):
+                 enable_face_sync: bool = True,
+                 min_silence_gap: float = 0.5,      # Minimum silence to cut at
+                 max_extension_seconds: float = 5.0): # Max extension beyond target duration
         """
         Initialize speech detector
         
@@ -61,12 +63,16 @@ class SpeechDetector:
             min_speech_duration: Minimum duration for valid speech segment
             enable_transcription: Enable speech-to-text transcription
             enable_face_sync: Sync speech with face detection
+            min_silence_gap: Minimum silence duration to consider as cut point
+            max_extension_seconds: Maximum seconds to extend beyond target duration
         """
         self.energy_threshold = energy_threshold
         self.silence_duration = silence_duration
         self.min_speech_duration = min_speech_duration
         self.enable_transcription = enable_transcription
         self.enable_face_sync = enable_face_sync
+        self.min_silence_gap = min_silence_gap
+        self.max_extension_seconds = max_extension_seconds
         
         # Initialize face detector if needed
         if enable_face_sync:
@@ -371,3 +377,185 @@ class SpeechDetector:
             speaking_scenes.append(scene)
         
         return speaking_scenes
+    
+    def find_natural_clip_boundary(self, video_path: str, start_time: float, 
+                                  target_duration: float) -> float:
+        """
+        Find the best natural boundary (silence gap) to end a clip
+        
+        Args:
+            video_path: Path to video file
+            start_time: Start time of the clip
+            target_duration: Target duration (will extend up to max_extension_seconds)
+            
+        Returns:
+            Optimal end time that ends at a natural speech boundary
+        """
+        try:
+            # Extract audio for analysis
+            audio_path = self._extract_audio(video_path)
+            if not audio_path:
+                return start_time + target_duration
+            
+            # Analyze audio energy in the target region
+            silence_gaps = self._find_silence_gaps(audio_path, start_time, target_duration)
+            
+            # Find best cut point
+            min_end_time = start_time + max(8.0, target_duration - 2.0)  # At least 8 seconds
+            max_end_time = start_time + target_duration + self.max_extension_seconds
+            
+            # Look for silence gaps near the target duration
+            best_cut_time = start_time + target_duration
+            best_gap_duration = 0
+            
+            for gap_start, gap_end, gap_duration in silence_gaps:
+                # Check if this gap is in our acceptable range
+                if min_end_time <= gap_start <= max_end_time:
+                    # Prefer longer silences and those closer to target
+                    distance_from_target = abs(gap_start - (start_time + target_duration))
+                    score = gap_duration - (distance_from_target * 0.1)
+                    
+                    if score > best_gap_duration:
+                        best_cut_time = gap_start
+                        best_gap_duration = score
+            
+            logger.info(f"Natural cut point: {best_cut_time:.2f}s (target was {start_time + target_duration:.2f}s)")
+            return best_cut_time
+            
+        except Exception as e:
+            logger.error(f"Natural boundary detection failed: {str(e)}")
+            return start_time + target_duration
+    
+    def _find_silence_gaps(self, audio_path: str, start_time: float, 
+                          search_duration: float) -> List[Tuple[float, float, float]]:
+        """
+        Find silence gaps in audio within the specified time range
+        
+        Returns:
+            List of (gap_start, gap_end, gap_duration) tuples
+        """
+        try:
+            # Read WAV file
+            with wave.open(audio_path, 'rb') as wav_file:
+                framerate = wav_file.getframerate()
+                n_frames = wav_file.getnframes()
+                
+                # Calculate byte offset for start time
+                start_frame = int(start_time * framerate)
+                search_frames = int((search_duration + self.max_extension_seconds) * framerate)
+                
+                # Seek to start position
+                wav_file.setpos(start_frame)
+                
+                # Read the audio data for our search region
+                audio_data = wav_file.readframes(min(search_frames, n_frames - start_frame))
+            
+            # Convert to numpy array
+            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+            audio_array = audio_array / 32768.0  # Normalize
+            
+            # Calculate energy in windows
+            window_size = int(framerate * 0.1)  # 100ms windows
+            hop_size = int(framerate * 0.05)  # 50ms hop
+            
+            energies = []
+            for i in range(0, len(audio_array) - window_size, hop_size):
+                window = audio_array[i:i + window_size]
+                energy = np.sqrt(np.mean(window ** 2))
+                energies.append(energy)
+            
+            # Find silence gaps
+            silence_gaps = []
+            in_silence = False
+            silence_start = 0
+            
+            for i, energy in enumerate(energies):
+                time_offset = start_time + (i * 0.05)  # Convert to absolute time
+                
+                if energy <= self.energy_threshold:
+                    if not in_silence:
+                        in_silence = True
+                        silence_start = time_offset
+                else:
+                    if in_silence:
+                        silence_end = time_offset
+                        silence_duration = silence_end - silence_start
+                        
+                        # Only include meaningful silence gaps
+                        if silence_duration >= self.min_silence_gap:
+                            silence_gaps.append((silence_start, silence_end, silence_duration))
+                        
+                        in_silence = False
+            
+            # Handle final silence
+            if in_silence:
+                silence_end = start_time + (len(energies) * 0.05)
+                silence_duration = silence_end - silence_start
+                if silence_duration >= self.min_silence_gap:
+                    silence_gaps.append((silence_start, silence_end, silence_duration))
+            
+            logger.info(f"Found {len(silence_gaps)} silence gaps in search region")
+            return silence_gaps
+            
+        except Exception as e:
+            logger.error(f"Silence gap detection failed: {str(e)}")
+            return []
+    
+    def create_natural_clips(self, video_path: str, 
+                           clip_duration: float = 15.0,
+                           max_clips: int = 5) -> List[Dict[str, Any]]:
+        """
+        Create clips that end at natural speech boundaries
+        
+        Args:
+            video_path: Path to video file
+            clip_duration: Target duration for each clip
+            max_clips: Maximum number of clips to create
+            
+        Returns:
+            List of clip dictionaries with natural boundaries
+        """
+        try:
+            # First, detect all speech segments
+            speech_segments = self.detect_speech_segments(video_path)
+            
+            if not speech_segments:
+                logger.warning("No speech segments detected")
+                return []
+            
+            clips = []
+            
+            for i, segment in enumerate(speech_segments[:max_clips]):
+                # Calculate natural end time
+                natural_end = self.find_natural_clip_boundary(
+                    video_path, segment.start_time, clip_duration
+                )
+                
+                # Ensure clip is at least minimum duration
+                actual_duration = natural_end - segment.start_time
+                if actual_duration < 8.0:
+                    natural_end = segment.start_time + 8.0
+                
+                clip = {
+                    'id': f'natural_clip_{i+1}',
+                    'start_time': segment.start_time,
+                    'end_time': natural_end,
+                    'duration': natural_end - segment.start_time,
+                    'target_duration': clip_duration,
+                    'ends_at_silence': True,
+                    'speech_confidence': segment.confidence,
+                    'has_face': segment.has_face,
+                    'speech_type': segment.speech_type,
+                    'description': f"Natural clip ending at speech boundary"
+                }
+                
+                clips.append(clip)
+                
+                logger.info(f"Created natural clip {i+1}: {segment.start_time:.2f}s -> {natural_end:.2f}s "
+                           f"(duration: {actual_duration:.2f}s, target: {clip_duration}s)")
+            
+            return clips
+            
+        except Exception as e:
+            logger.error(f"Natural clip creation failed: {str(e)}")
+            return []

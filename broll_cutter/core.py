@@ -103,7 +103,9 @@ class YouTubeBRollCutter:
             silence_duration=0.3,   # Shorter silence gaps
             min_speech_duration=1.0,  # Shorter minimum duration
             enable_transcription=False,  # Can be enabled with API key
-            enable_face_sync=True
+            enable_face_sync=True,
+            min_silence_gap=0.5,    # Minimum silence to cut at
+            max_extension_seconds=5.0  # Max extension beyond target duration
         )
         
         # Statistics
@@ -712,6 +714,95 @@ class YouTubeBRollCutter:
         except Exception as e:
             logger.error(f"Speaking clip extraction failed for {video_url}: {str(e)}")
             raise
+        finally:
+            self._cleanup_temp_files(job_id)
+    
+    def extract_natural_clips(self, video_url: str,
+                             target_duration: float = 15.0,
+                             max_clips: int = 5,
+                             custom_settings: Optional[Dict] = None) -> List[str]:
+        """
+        Extract clips that end at natural speech boundaries (silence gaps)
+        
+        Args:
+            video_url: YouTube video URL
+            target_duration: Target duration for each clip (can be extended)
+            max_clips: Maximum number of clips to extract
+            custom_settings: Optional custom settings
+            
+        Returns:
+            List of paths to extracted natural clips
+        """
+        try:
+            job_id = str(uuid.uuid4())[:8]
+            logger.info(f"Starting natural clip extraction for: {video_url} (Job: {job_id})")
+            
+            self._update_progress("Downloading video for natural boundary analysis...", 0)
+            
+            # Download video
+            video_path = self.downloader.download_video(video_url, f"natural_{job_id}")
+            video_info = self.downloader.get_video_info(video_url)
+            
+            self._update_progress("Analyzing speech patterns and silence gaps...", 20)
+            
+            # Create clips with natural boundaries
+            natural_clips = self.speech_detector.create_natural_clips(
+                video_path=video_path,
+                clip_duration=target_duration,
+                max_clips=max_clips
+            )
+            
+            if not natural_clips:
+                logger.warning("No natural clips could be created")
+                return []
+            
+            self._update_progress("Extracting clips at natural boundaries...", 50)
+            
+            # Extract the clips
+            clip_paths = []
+            for i, clip in enumerate(natural_clips):
+                self._update_progress(f"Extracting clip {i+1}/{len(natural_clips)}...", 
+                                    50 + (i / len(natural_clips)) * 40)
+                
+                # Create unique output filename
+                duration_str = f"{clip['duration']:.1f}s"
+                output_filename = f"{job_id}_natural_{i+1:02d}_{duration_str}.mp4"
+                output_path = self.output_dir / output_filename
+                
+                # Extract the clip
+                success = self.video_processor.extract_clip(
+                    video_path=video_path,
+                    start_time=clip['start_time'],
+                    end_time=clip['end_time'],
+                    output_path=str(output_path),
+                    enhance=self.enhance_video
+                )
+                
+                if success:
+                    clip_paths.append(str(output_path))
+                    logger.info(f"Extracted natural clip: {clip['start_time']:.2f}s -> {clip['end_time']:.2f}s "
+                               f"(duration: {clip['duration']:.2f}s, target: {target_duration}s)")
+                else:
+                    logger.warning(f"Failed to extract natural clip {i+1}")
+            
+            self._update_progress("Extraction complete!", 100)
+            
+            # Update statistics
+            self.stats['clips_extracted'] += len(clip_paths)
+            self.stats['videos_processed'] += 1
+            
+            logger.info(f"Natural clip extraction completed: {len(clip_paths)} clips extracted")
+            return clip_paths
+            
+        except Exception as e:
+            logger.error(f"Natural clip extraction failed: {str(e)}")
+            if self.progress_callback:
+                self.progress_callback({
+                    'status': 'error',
+                    'progress': 0,
+                    'message': f"Natural clip extraction error: {str(e)}"
+                })
+            return []
         finally:
             self._cleanup_temp_files(job_id)
     
