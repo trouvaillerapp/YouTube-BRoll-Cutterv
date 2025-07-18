@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  youtube-broll-cutter:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./output:/app/output
+      - ./web_output:/app/web_output
+    environment:
+      - YOUTUBE_COOKIES_FILE=/app/cookies.txt
+    restart: unless-stopped
