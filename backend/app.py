@@ -174,6 +174,7 @@ async def read_root():
                                         <option value="speaking">Speaking Segments (Dialogue/Monologue)</option>
                                         <option value="quotes">Quotes & Statements (3-15s clips)</option>
                                         <option value="natural">🎯 Natural Boundaries (Ends at silence)</option>
+                                        <option value="newsworthy">📰 AI News Analysis (Most important content)</option>
                                     </select>
                                 </div>
                             </div>
@@ -276,7 +277,7 @@ async def read_root():
             
             // Show/hide speech settings based on mode
             modeSelect.addEventListener('change', (e) => {
-                if (e.target.value === 'speaking' || e.target.value === 'quotes' || e.target.value === 'natural') {
+                if (e.target.value === 'speaking' || e.target.value === 'quotes' || e.target.value === 'natural' || e.target.value === 'newsworthy') {
                     speechSettings.style.display = 'block';
                 } else {
                     speechSettings.style.display = 'none';
@@ -447,6 +448,10 @@ async def read_root():
                     settings.target_duration = parseFloat(document.getElementById('durationInput').value);
                     settings.min_silence_gap = 0.5;  // Minimum silence to cut at
                     settings.max_extension_seconds = 5.0;  // Max extension beyond target
+                } else if (mode === 'newsworthy') {
+                    // AI news analysis settings
+                    settings.importance_threshold = 0.6;  // Minimum importance score
+                    settings.enable_ai_analysis = true;   // Enable AI-powered analysis
                 }
                 
                 return settings;
@@ -752,6 +757,14 @@ def process_videos_sync(job_id: str, urls: List[str], settings: Dict[str, Any]):
                         url,
                         target_duration=settings.get("target_duration", 15.0),
                         max_clips=settings.get("max_clips_per_video", 5),
+                        custom_settings=settings
+                    )
+                elif extraction_mode == "newsworthy":
+                    # Extract clips with AI-powered news importance analysis
+                    clips = cutter.extract_newsworthy_clips(
+                        url,
+                        max_clips=settings.get("max_clips_per_video", 5),
+                        importance_threshold=settings.get("importance_threshold", 0.6),
                         custom_settings=settings
                     )
                 else:
@@ -1310,6 +1323,98 @@ async def n8n_extract_quotes(request: N8NVideoRequest, background_tasks: Backgro
     except Exception as e:
         logger.error(f"N8N quote extraction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to start quote extraction: {str(e)}")
+
+@app.post("/api/v1/extract-newsworthy")
+async def n8n_extract_newsworthy(request: N8NVideoRequest, background_tasks: BackgroundTasks):
+    """
+    N8N API endpoint for extracting newsworthy content using AI analysis
+    Finds the most important/newsworthy segments in video content
+    """
+    try:
+        if not BROLL_AVAILABLE:
+            raise HTTPException(status_code=500, detail="B-Roll Cutter module not available")
+        
+        if not request.url:
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        job_id = str(uuid.uuid4())
+        logger.info(f"N8N newsworthy extraction job {job_id} started for URL: {request.url}")
+        
+        # Configure settings for newsworthy extraction
+        settings = request.settings or {}
+        settings.update({
+            "extraction_mode": "newsworthy",
+            "importance_threshold": settings.get("importance_threshold", 0.6),
+            "max_clips_per_video": settings.get("max_clips", 5),
+            "enable_ai_analysis": True
+        })
+        
+        # Store job info
+        processing_jobs[job_id] = {
+            "status": "pending",
+            "progress": 0,
+            "message": "Newsworthy extraction queued",
+            "clips": [],
+            "urls": [request.url],
+            "settings": settings,
+            "webhook_url": request.webhook_url,
+            "created_at": time.time()
+        }
+        
+        # Start processing in background
+        background_tasks.add_task(process_videos_background, job_id, [request.url], settings)
+        
+        return {
+            "job_id": job_id,
+            "status": "started",
+            "message": "AI news analysis started",
+            "extraction_mode": "newsworthy",
+            "importance_threshold": settings["importance_threshold"],
+            "estimated_duration": "4-8 minutes",
+            "status_url": f"/api/v1/status/{job_id}",
+            "download_url": f"/api/v1/download/{job_id}",
+            "description": "Extracting most newsworthy/important segments using AI analysis"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"N8N newsworthy extraction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start newsworthy extraction: {str(e)}")
+
+@app.post("/api/v1/analyze-news")
+async def analyze_news_content(request: N8NVideoRequest):
+    """
+    N8N API endpoint for analyzing video news content without extraction
+    Returns comprehensive news analysis report
+    """
+    try:
+        if not BROLL_AVAILABLE:
+            raise HTTPException(status_code=500, detail="B-Roll Cutter module not available")
+        
+        if not request.url:
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        logger.info(f"N8N news analysis started for URL: {request.url}")
+        
+        # Initialize cutter
+        cutter = YouTubeBRollCutter()
+        
+        # Analyze video for news content
+        analysis = cutter.analyze_video_news_content(request.url)
+        
+        return {
+            "analysis": analysis,
+            "url": request.url,
+            "timestamp": time.time(),
+            "status": "completed"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"N8N news analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"News analysis failed: {str(e)}")
 
 @app.get("/api/v1/docs")
 async def n8n_api_docs():

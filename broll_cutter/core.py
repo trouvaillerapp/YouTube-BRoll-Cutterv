@@ -18,6 +18,7 @@ from .video_processor import VideoProcessor
 from .speech_detector import SpeechDetector, SpeechSegment
 from .youtube_fallback import YouTubeFallback
 from .simple_extractor import SimpleExtractor
+from .news_extractor import NewsExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,13 @@ class YouTubeBRollCutter:
         # Statistics
         self.simple_extractor = SimpleExtractor(
             output_dir=str(self.output_dir)
+        )
+        
+        # Initialize news extractor
+        self.news_extractor = NewsExtractor(
+            openai_api_key=os.environ.get('OPENAI_API_KEY'),
+            enable_transcription=True,
+            importance_threshold=0.6
         )
         
         self.stats = {
@@ -803,6 +811,142 @@ class YouTubeBRollCutter:
                     'message': f"Natural clip extraction error: {str(e)}"
                 })
             return []
+        finally:
+            self._cleanup_temp_files(job_id)
+    
+    def extract_newsworthy_clips(self, video_url: str,
+                                max_clips: int = 5,
+                                importance_threshold: float = 0.6,
+                                custom_settings: Optional[Dict] = None) -> List[str]:
+        """
+        Extract clips containing the most newsworthy/important content using AI analysis
+        
+        Args:
+            video_url: YouTube video URL
+            max_clips: Maximum number of clips to extract
+            importance_threshold: Minimum importance score (0.0-1.0)
+            custom_settings: Optional custom settings
+            
+        Returns:
+            List of paths to extracted newsworthy clips
+        """
+        try:
+            job_id = str(uuid.uuid4())[:8]
+            logger.info(f"Starting newsworthy clip extraction for: {video_url} (Job: {job_id})")
+            
+            self._update_progress("Downloading video for news analysis...", 0)
+            
+            # Download video
+            video_path = self.downloader.download_video(video_url, f"news_{job_id}")
+            video_info = self.downloader.get_video_info(video_url)
+            
+            self._update_progress("Analyzing video for newsworthy content...", 20)
+            
+            # Set importance threshold
+            self.news_extractor.importance_threshold = importance_threshold
+            
+            # Extract newsworthy clips
+            newsworthy_clips = self.news_extractor.extract_newsworthy_clips(
+                video_path=video_path,
+                max_clips=max_clips
+            )
+            
+            if not newsworthy_clips:
+                logger.warning("No newsworthy clips found")
+                return []
+            
+            self._update_progress("Extracting most important segments...", 50)
+            
+            # Extract the clips
+            clip_paths = []
+            for i, clip in enumerate(newsworthy_clips):
+                self._update_progress(f"Extracting newsworthy clip {i+1}/{len(newsworthy_clips)}...", 
+                                    50 + (i / len(newsworthy_clips)) * 40)
+                
+                # Create unique output filename with metadata
+                category = clip['news_category']
+                score = clip['importance_score']
+                duration_str = f"{clip['duration']:.1f}s"
+                output_filename = f"{job_id}_news_{i+1:02d}_{category}_{score:.2f}_{duration_str}.mp4"
+                output_path = self.output_dir / output_filename
+                
+                # Extract the clip
+                success = self.video_processor.extract_clip(
+                    video_path=video_path,
+                    start_time=clip['start_time'],
+                    end_time=clip['end_time'],
+                    output_path=str(output_path),
+                    enhance=self.enhance_video
+                )
+                
+                if success:
+                    clip_paths.append(str(output_path))
+                    logger.info(f"Extracted newsworthy clip: {clip['start_time']:.2f}s-{clip['end_time']:.2f}s "
+                               f"({category}, score: {score:.2f}, summary: {clip['summary'][:50]}...)")
+                else:
+                    logger.warning(f"Failed to extract newsworthy clip {i+1}")
+            
+            self._update_progress("News extraction complete!", 100)
+            
+            # Update statistics
+            self.stats['clips_extracted'] += len(clip_paths)
+            self.stats['videos_processed'] += 1
+            
+            logger.info(f"Newsworthy clip extraction completed: {len(clip_paths)} clips extracted")
+            
+            # Log analysis summary
+            if newsworthy_clips:
+                categories = [clip['news_category'] for clip in newsworthy_clips]
+                avg_score = sum(clip['importance_score'] for clip in newsworthy_clips) / len(newsworthy_clips)
+                logger.info(f"News analysis: Categories: {set(categories)}, Avg importance: {avg_score:.2f}")
+            
+            return clip_paths
+            
+        except Exception as e:
+            logger.error(f"Newsworthy clip extraction failed: {str(e)}")
+            if self.progress_callback:
+                self.progress_callback({
+                    'status': 'error',
+                    'progress': 0,
+                    'message': f"News extraction error: {str(e)}"
+                })
+            return []
+        finally:
+            self._cleanup_temp_files(job_id)
+    
+    def analyze_video_news_content(self, video_url: str) -> Dict[str, Any]:
+        """
+        Analyze video for news content without extracting clips
+        
+        Args:
+            video_url: YouTube video URL
+            
+        Returns:
+            Comprehensive news analysis report
+        """
+        try:
+            job_id = str(uuid.uuid4())[:8]
+            logger.info(f"Analyzing news content for: {video_url}")
+            
+            # Download video
+            video_path = self.downloader.download_video(video_url, f"analysis_{job_id}")
+            
+            # Analyze for news content
+            analysis = self.news_extractor.analyze_video_for_news(video_path)
+            
+            # Add video metadata
+            video_info = self.downloader.get_video_info(video_url)
+            analysis['video_metadata'] = {
+                'title': video_info.get('title', 'Unknown'),
+                'duration': video_info.get('duration', 0),
+                'uploader': video_info.get('uploader', 'Unknown')
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"News content analysis failed: {str(e)}")
+            return {'error': str(e)}
         finally:
             self._cleanup_temp_files(job_id)
     
