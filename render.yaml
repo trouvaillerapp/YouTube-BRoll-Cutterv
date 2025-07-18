@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: youtube-broll-cutter
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: YOUTUBE_COOKIES_FILE
+        value: /app/cookies.txt
+        # You can add this file later if needed for YouTube authentication
+    disk:
+      name: video-storage
+      mountPath: /app/output
+      sizeGB: 1

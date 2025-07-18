@@ -1,6 +1,7 @@
-# Railway requirements - flexible versions
+# Render deployment requirements
 fastapi>=0.104.0
 uvicorn>=0.24.0
+websockets>=11.0
 python-multipart>=0.0.6
 yt-dlp>=2024.7.7
 opencv-python-headless>=4.8.0
